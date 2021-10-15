@@ -148,3 +148,9 @@ Inactive/cMSSM/.Misc/*
 Inactive/pMSSM/.Losses/*
 Inactive/runs/*
 Inactive/runs/hparams.p
+data/Hollingsworth
+pipeline/runs
+testingPymegas/scan_results
+testingPymegas/*Les*
+testingPymegas/*SPheno*
+testingPymegas/*suspect*
