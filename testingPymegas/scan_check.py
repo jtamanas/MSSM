@@ -136,7 +136,7 @@ if __name__ == "__main__":
         sugras,
         settings,
         out_dir=out_dir,
-        num_total_sims=128,
-        batch_size=8,
+        num_total_sims=128*128,
+        batch_size=128,
         clip_bound=20000,
     )
