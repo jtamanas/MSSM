@@ -92,7 +92,7 @@ def batch_simulator(
         # batch = batch.clip(-clip_bound, clip_bound)
         params = batch.apply(lambda x: SugraParameters(*x), axis=1).to_list()
         try:
-            results = softsusy(params=params, settings=settings)
+            results = spheno(params=params, settings=settings)
         except RuntimeError:
             # print(batch)
             print("micromegas failed")
@@ -129,7 +129,7 @@ if __name__ == "__main__":
         cut=0.01,
     )
 
-    out_dir = "/media/jt/data/Projects/MSSM/testingPymegas/scan_results/"
+    out_dir = "/media/jt/data/Projects/MSSM/testingPymegas/spheno_scan_results/"
 
     # run the simulator
     batch_simulator(
