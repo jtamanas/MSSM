@@ -135,6 +135,7 @@ venv.bak/
 # data files
 *.gz
 *tfevents*
+*.h5
 
 /.vscode
 /micromegas_5.0.4.tgz
@@ -153,3 +154,9 @@ pipeline/runs
 testingPymegas/*Les*
 testingPymegas/*SPheno*
 testingPymegas/*suspect*
+
+
+# Micromegas files
+MCMC/cMSSM/*LesH*
+MCMC/cMSSM/SPheno.spc
+MCMC/pMSSM/*LesH*
