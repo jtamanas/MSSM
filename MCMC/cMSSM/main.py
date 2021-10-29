@@ -8,6 +8,7 @@ from mcmc_settings import mcmc_settings
 import sys
 from tqdm.auto import tqdm
 
+
 sys.path.append("/media/jt/data/Projects/MSSM/micromegas_5.2.7.a/MSSM/")
 from pymicromegas import MicromegasSettings, SugraParameters
 from spheno import spheno
@@ -78,7 +79,7 @@ coords = np.random.rand(mcmc_settings["nwalkers"], theta_dim)
 # Don't forget to clear it in case the file already exists
 filename = f"runs/{mcmc_settings['nwalkers']}walkers_{mcmc_settings['max_n']}sampleseach_{mcmc_settings['simulator']}.h5"
 backend = emcee.backends.HDFBackend(filename)
-backend.reset(mcmc_settings["nwalkers"], theta_dim)
+# backend.reset(mcmc_settings["nwalkers"], theta_dim)
 
 # Initialize the sampler
 sampler = emcee.EnsembleSampler(

@@ -160,3 +160,6 @@ testingPymegas/*suspect*
 MCMC/cMSSM/*LesH*
 MCMC/cMSSM/SPheno.spc
 MCMC/pMSSM/*LesH*
+LBI/cMSSM/*LesH*
+LBI/cMSSM/SPheno.spc
+LBI/pMSSM/*LesH*
