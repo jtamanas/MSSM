@@ -31,7 +31,7 @@ hidden_dim = 64
 # Optimizer hyperparmeters
 max_norm = 1e-3
 learning_rate = 3e-4
-weight_decay = 1e0
+weight_decay = 1e-1
 sync_period = 5
 slow_step_size = 0.5
 

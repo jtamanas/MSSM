@@ -163,3 +163,7 @@ MCMC/pMSSM/*LesH*
 LBI/cMSSM/*LesH*
 LBI/cMSSM/SPheno.spc
 LBI/pMSSM/*LesH*
+MCMC/2DcMSSM/LesH*
+MCMC/2DcMSSM/SPheno.spc
+LBI/2DcMSSM/SPheno.spc
+LBI/2DcMSSM/LesH* 
