@@ -27,7 +27,6 @@ settings = MicromegasSettings(
 )
 
 
-
 def theta_addunits(unitless_theta):
     theta = onp.zeros_like(unitless_theta)
     theta = onp.hstack((theta, onp.zeros((len(theta), 1))))
@@ -55,21 +54,28 @@ def get_simulator(micromegas_simulator=None, **kwargs):
         theta_dim: the dimension of the theta space
     """
 
-    def simulator(rng, theta, num_samples_per_theta=1):
+    def simulator(rng, unitless_theta, num_samples_per_theta=1):
         """
         Parameters:
         -----------
         rng: jax rng object
         theta: cMSSM parameters
         num_samples_per_theta: int  # number of samples to take per theta
-        
+
         Returns:
             observables
         """
-        theta = theta_addunits(theta)
+        theta = theta_addunits(unitless_theta)
         params = [SugraParameters(*th) for th in theta]
         results = _simulator(params=params, settings=settings)
-        out = onp.array([results.omega(), results.gmuon(), results.mhsm()])
+        # out = onp.array([results.omega(), results.gmuon(), results.mhsm()])
+        out = onp.array(
+            [
+                onp.log(results.omega()),
+                1e10 * onp.array(results.gmuon()),
+                onp.log(results.mhsm()),
+            ]
+        )
         out = out.T
         return out
 
@@ -81,5 +87,3 @@ def get_simulator(micromegas_simulator=None, **kwargs):
     _simulator = micromegas[micromegas_simulator]
 
     return simulator, obs_dim, theta_dim
-
-

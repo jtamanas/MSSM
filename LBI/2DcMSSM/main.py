@@ -5,11 +5,14 @@ import optax
 from trax.jaxboard import SummaryWriter
 from lbi.prior import SmoothedBoxPrior
 from lbi.dataset import getDataLoaderBuilder
-from lbi.diagnostics import MMD, ROC_AUC, LR_ROC_AUC
+# from lbi.diagnostics import MMD, ROC_AUC, LR_ROC_AUC
 from lbi.sequential.sequential import sequential
-from lbi.models.base import get_train_step, get_valid_step
-from lbi.models.flows import InitializeFlow
-from lbi.models.classifier import InitializeClassifier
+from lbi.models import parallel_init_fn
+from lbi.models.steps import get_train_step, get_valid_step
+from lbi.models.flows import construct_MAF
+from lbi.models.MLP import MLP
+from lbi.models.classifier import construct_Classifier
+from lbi.models.classifier.classifier import get_loss_fn
 from lbi.trainer import getTrainer
 from lbi.sampler import hmc
 from simulator import get_simulator
@@ -25,8 +28,9 @@ seed = 1234
 rng, model_rng, hmc_rng = jax.random.split(jax.random.PRNGKey(seed), num=3)
 
 # Model hyperparameters
-num_layers = 5
-hidden_dim = 64
+ensemble_size = 15
+num_layers = 2
+hidden_dim = 32
 
 # Optimizer hyperparmeters
 max_norm = 1e-3
@@ -38,13 +42,13 @@ slow_step_size = 0.5
 # Train hyperparameters
 nsteps = 50000
 patience = 150
-eval_interval = 100  # an epoch ~ 750 steps
+eval_interval = 10  # an epoch ~ 750 steps
 
 # Sequential hyperparameters
-num_rounds = 10
-num_chains = 12
-num_initial_samples = 1000
-num_samples_per_round = 250//num_chains
+num_rounds = 1
+num_chains = 4
+num_initial_samples = 2500
+num_samples_per_round = 250 // num_chains
 num_warmup_per_round = 1000
 
 # --------------------------
@@ -61,7 +65,10 @@ logger = None
 simulate, obs_dim, theta_dim = get_simulator()
 
 # set up true model for posterior inference test
-X_true = np.array([[0.12, 251e-11, 125.0]])
+# X_true = np.array([[0.12, 251e-11, 125.0]])
+X_true = np.array([[np.log(0.12), 1e10 * 251e-11, np.log(125.0)]])
+
+# X_true = np.log(np.abs(X_true))s
 
 data_loader_builder = getDataLoaderBuilder(
     sequential_mode=model_type,
@@ -80,25 +87,6 @@ log_prior, sample_prior = SmoothedBoxPrior(
 # TODO: Package model, optimizer, trainer initialization into a function
 
 # --------------------------
-# Create model
-if model_type == "classifier":
-    model_params, loss, log_pdf = InitializeClassifier(
-        model_rng=model_rng,
-        obs_dim=obs_dim,
-        theta_dim=theta_dim,
-        num_layers=num_layers,
-        hidden_dim=hidden_dim,
-    )
-else:
-    model_params, loss, (log_pdf, sample) = InitializeFlow(
-        model_rng=model_rng,
-        obs_dim=obs_dim,
-        theta_dim=theta_dim,
-        num_layers=num_layers,
-        hidden_dim=hidden_dim,
-    )
-
-# --------------------------
 # Create optimizer
 optimizer = optax.chain(
     # Set the parameters of Adam optimizer
@@ -111,19 +99,55 @@ optimizer = optax.chain(
     ),
     optax.adaptive_grad_clip(max_norm),
 )
-optimizer = optax.lookahead(
-    optimizer, sync_period=sync_period, slow_step_size=slow_step_size
+
+# --------------------------
+# Create model
+if model_type == "classifier":
+    classifier_kwargs = {
+        # "output_dim": 1,
+        "hidden_dim": (obs_dim + theta_dim) * 2,
+        "num_layers": 2,
+        "use_residual": False,
+        "act": "leaky_relu",
+    }
+    model, loss_fn = construct_Classifier(**classifier_kwargs)
+else:
+    maf_kwargs = {
+        "rng": rng,
+        "input_dim": obs_dim,
+        "hidden_dim": hidden_dim,
+        "context_dim": theta_dim,
+        "n_layers": num_layers,
+        "permutation": "Conv1x1",
+        "normalization": None,
+        "made_activation": "gelu",
+    }
+    context_embedding_kwargs = {
+        "output_dim": theta_dim * 2,
+        "hidden_dim": theta_dim * 2,
+        "num_layers": 2,
+        "act": "leaky_relu",
+    }
+
+    context_embedding = MLP(**context_embedding_kwargs)
+    model, loss_fn = construct_MAF(context_embedding=context_embedding, **maf_kwargs)
+
+params, opt_state = parallel_init_fn(
+    jax.random.split(rng, ensemble_size),
+    model,
+    optimizer,
+    (obs_dim,),
+    (theta_dim,),
 )
 
-model_params = optax.LookaheadParams.init_synced(model_params)
-opt_state = optimizer.init(model_params)
-
+# the models' __call__ are their log_prob fns
+parallel_log_prob = jax.vmap(model.apply, in_axes=(0, None, None))
 
 # --------------------------
 # Create trainer
 
-train_step = get_train_step(loss, optimizer)
-valid_step = get_valid_step({"valid_loss": loss})
+train_step = get_train_step(loss_fn, optimizer)
+valid_step = get_valid_step({"valid_loss": loss_fn})
 
 trainer = getTrainer(
     train_step,
@@ -137,11 +161,11 @@ trainer = getTrainer(
 )
 
 # Train model sequentially
-model_params, Theta_post = sequential(
+params, Theta_post = sequential(
     rng,
     X_true,
-    model_params,
-    log_pdf,
+    params,
+    parallel_log_prob,
     log_prior,
     sample_prior,
     simulate,
@@ -161,14 +185,11 @@ model_params, Theta_post = sequential(
 def potential_fn(theta):
     if len(theta.shape) == 1:
         theta = theta[None, :]
-    log_post = (
-        -log_pdf(
-            model_params.fast if hasattr(model_params, "fast") else model_params,
-            X_true,
-            theta,
-        )
-        - log_prior(theta)
-    )
+
+    log_L = parallel_log_prob(params, X_true, theta)
+    log_L = log_L.mean(axis=0)
+
+    log_post = -log_L - log_prior(theta)
     return log_post.sum()
 
 
@@ -188,7 +209,7 @@ if hasattr(logger, "plot"):
     logger.plot(f"Prior Corner Plot", plt, close_plot=True)
 else:
     plt.savefig("prior_corner.png")
-    
+
 mcmc = hmc(
     rng,
     potential_fn,
@@ -201,6 +222,7 @@ mcmc = hmc(
     num_warmup=2000,
     num_samples=500,
     num_chains=num_chains,
+    chain_method="vectorized",
 )
 mcmc.print_summary()
 
