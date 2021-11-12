@@ -40,7 +40,7 @@ def theta_addunits(unitless_theta):
     return theta
 
 
-def get_simulator(micromegas_simulator=None, **kwargs):
+def get_simulator(micromegas_simulator=None, preprocess=None, **kwargs):
     """
     Parameters:
     -----------
@@ -53,6 +53,8 @@ def get_simulator(micromegas_simulator=None, **kwargs):
         obs_dim: the dimension of the observation space
         theta_dim: the dimension of the theta space
     """
+    if preprocess is None:
+        preprocess = lambda x: x
 
     def simulator(rng, unitless_theta, num_samples_per_theta=1):
         """
@@ -68,15 +70,16 @@ def get_simulator(micromegas_simulator=None, **kwargs):
         theta = theta_addunits(unitless_theta)
         params = [SugraParameters(*th) for th in theta]
         results = _simulator(params=params, settings=settings)
-        # out = onp.array([results.omega(), results.gmuon(), results.mhsm()])
-        out = onp.array(
-            [
-                onp.log(results.omega()),
-                1e10 * onp.array(results.gmuon()),
-                onp.log(results.mhsm()),
-            ]
-        )
+        out = onp.array([results.omega(), results.gmuon(), results.mhsm()])
+        # out = onp.array(
+        #     [
+        #         onp.log(results.omega()),
+        #         1e10 * onp.array(results.gmuon()),
+        #         onp.log(results.mhsm()),
+        #     ]
+        # )
         out = out.T
+        out = preprocess(out)
         return out
 
     if micromegas_simulator is None:

@@ -33,7 +33,7 @@ labels = list(map(r"$\theta_{{{0}}}$".format, range(1, theta_dim + 1)))
 labels = [r"$M_0$", r"$M_{1/2}$"]
 labels += ["log prob"]
 
-ranges = [(0.0, 1.), (0.0, 1.), (4., 8.0)]
+ranges = [(0.0, 1.), (0.0, 1.), (4., 10.0)]
 
 az_samp = az.from_emcee(reader)
 print(az.summary(az_samp))

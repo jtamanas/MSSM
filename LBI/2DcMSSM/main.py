@@ -5,6 +5,7 @@ import optax
 from trax.jaxboard import SummaryWriter
 from lbi.prior import SmoothedBoxPrior
 from lbi.dataset import getDataLoaderBuilder
+
 # from lbi.diagnostics import MMD, ROC_AUC, LR_ROC_AUC
 from lbi.sequential.sequential import sequential
 from lbi.models import parallel_init_fn
@@ -20,6 +21,16 @@ from simulator import get_simulator
 import corner
 import matplotlib.pyplot as plt
 import datetime
+
+
+@jax.jit
+def process_X(x):
+    omega = (np.log(x[:, 0]) - 1.6271843) / 2.257083
+    gmuon = (1e10 * x[:, 1] - 0.686347) / (3.0785 * 3)
+    mh = (x[:, 2] - 124.86377) / 2.2839
+    out = np.stack([omega, gmuon, mh], axis=1)
+    return out
+
 
 # --------------------------
 model_type = "classifier"  # "classifier" or "flow"
@@ -41,14 +52,14 @@ slow_step_size = 0.5
 
 # Train hyperparameters
 nsteps = 50000
-patience = 150
+patience = 1500
 eval_interval = 10  # an epoch ~ 750 steps
 
 # Sequential hyperparameters
 num_rounds = 1
-num_chains = 4
-num_initial_samples = 2500
-num_samples_per_round = 250 // num_chains
+num_chains = 10
+num_initial_samples = 15000
+num_samples_per_round = 1000 // num_chains
 num_warmup_per_round = 1000
 
 # --------------------------
@@ -62,13 +73,12 @@ logger = None
 
 # --------------------------
 # set up simulation and observables
-simulate, obs_dim, theta_dim = get_simulator()
+simulate, obs_dim, theta_dim = get_simulator(preprocess=process_X)
 
 # set up true model for posterior inference test
-# X_true = np.array([[0.12, 251e-11, 125.0]])
-X_true = np.array([[np.log(0.12), 1e10 * 251e-11, np.log(125.0)]])
-
-# X_true = np.log(np.abs(X_true))s
+X_true = np.array([[0.12, 251e-11, 125.0]])
+X_true = process_X(X_true)
+print("X_true", X_true)
 
 data_loader_builder = getDataLoaderBuilder(
     sequential_mode=model_type,
@@ -222,19 +232,27 @@ mcmc = hmc(
     num_warmup=2000,
     num_samples=500,
     num_chains=num_chains,
+    extra_fields=("potential_energy",),
     chain_method="vectorized",
 )
 mcmc.print_summary()
 
-theta_samples = mcmc.get_samples(group_by_chain=False).squeeze()
 
-corner.corner(
-    onp.array(theta_samples),
-    range=[(0, 1) for i in range(theta_dim)],
-    bins=75,
-    smooth=(1.0),
-    smooth1d=(1.0),
-)
+samples = mcmc.get_samples(group_by_chain=False).squeeze()
+posterior_log_probs = -mcmc.get_extra_fields()["potential_energy"]
+samples = np.hstack([samples, posterior_log_probs[:, None]])
+
+
+labels = list(map(r"$\theta_{{{0}}}$".format, range(1, theta_dim + 1)))
+labels = [r"$M_0$", r"$M_{1/2}$"]
+labels += ["log prob"]
+ranges = [
+    (0.0, 1.0),
+    (0.0, 1.0),
+    (posterior_log_probs.min(), posterior_log_probs.max()),
+]
+
+corner.corner(onp.array(samples), range=ranges, labels=labels)
 
 if hasattr(logger, "plot"):
     logger.plot(f"Posterior Corner Plot", plt, close_plot=True)
