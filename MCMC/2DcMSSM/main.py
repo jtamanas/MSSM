@@ -71,8 +71,8 @@ settings = MicromegasSettings(
 
 unitless_prior, _ = SmoothedBoxPrior(theta_dim=theta_dim, lower=0, upper=1, sigma=0.01)
 
-exp_obs = np.array([0.12, 2e-11, 125.0])
-sigma_obs = np.array([0.06, 5e-11, 5.0])
+exp_obs = np.array([0.12, 251e-11, 125.0])
+sigma_obs = np.array([0.03, 59e-11, 2.0])
 
 coords = np.random.rand(mcmc_settings["nwalkers"], theta_dim)
 
@@ -81,7 +81,7 @@ coords = np.random.rand(mcmc_settings["nwalkers"], theta_dim)
 # Don't forget to clear it in case the file already exists
 filename = f"runs/{mcmc_settings['nwalkers']}walkers_{mcmc_settings['max_n']}sampleseach_{mcmc_settings['simulator']}.h5"
 backend = emcee.backends.HDFBackend(filename)
-backend.reset(mcmc_settings["nwalkers"], theta_dim)
+# backend.reset(mcmc_settings["nwalkers"], theta_dim)
 
 # Initialize the sampler
 sampler = emcee.EnsembleSampler(

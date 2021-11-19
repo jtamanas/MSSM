@@ -12,14 +12,22 @@ from simulator import get_simulator
 import corner
 import matplotlib.pyplot as plt
 
-from pipe import pipeline_kwargs
+from pipeline_kwargs import pipeline_kwargs
 
 
 @jax.jit
-def process_X(x):
+def scale_X(x):
     omega = (np.log(x[:, 0]) - 1.6271843) / 2.257083
     gmuon = (1e10 * x[:, 1] - 0.686347) / (3.0785 * 3)
     mh = (x[:, 2] - 124.86377) / 2.2839
+    out = np.stack([omega, gmuon, mh], axis=1)
+    return out
+
+@jax.jit
+def inverse_scale_X(x):
+    omega = np.exp(x[:, 0] * 2.257083 + 1.6271843)
+    gmuon = (x[:, 1] * (3.0785 * 3) + 0.686347) / 1e10
+    mh = x[:, 2] * 2.2839 + 124.8637
     out = np.stack([omega, gmuon, mh], axis=1)
     return out
 
@@ -40,10 +48,11 @@ logger = None
 
 
 # set up true model for posterior inference test
-simulator_kwargs = {"preprocess": process_X}
+simulator_kwargs = {"preprocess": scale_X}
 simulate, obs_dim, theta_dim = get_simulator(**simulator_kwargs)
 X_true = np.array([[0.12, 251e-11, 125.0]])
-X_true = process_X(X_true)
+X_true = scale_X(X_true)
+X_sigma = np.array([0.03, 59e-11, 2.0])
 print("X_true", X_true)
 
 # --------------------------
@@ -61,7 +70,11 @@ model, params, Theta_post = pipeline(
     sample_prior,
     # Simulator
     simulator_kwargs=simulator_kwargs,
-    **pipeline_kwargs, 
+    # scaling
+    sigma=X_sigma,
+    scale_X=scale_X,
+    inverse_scale_X=inverse_scale_X,
+    **pipeline_kwargs,
 )
 
 parallel_log_prob = jax.vmap(model.apply, in_axes=(0, None, None))

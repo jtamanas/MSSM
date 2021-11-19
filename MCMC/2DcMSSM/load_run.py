@@ -12,7 +12,7 @@ reader = emcee.backends.HDFBackend(filename)
 
 tau = reader.get_autocorr_time(tol=0)
 burnin = int(2 * np.max(tau))
-thin = max(1, int(0.5 * np.min(tau))) 
+thin = max(1, int(0.5 * np.min(tau)))
 
 samples = reader.get_chain(discard=burnin, flat=True, thin=thin)
 log_prob_samples = reader.get_log_prob(discard=burnin, flat=True, thin=thin)
@@ -25,15 +25,13 @@ print("flat chain shape: {0}".format(samples.shape))
 print("flat log prob shape: {0}".format(log_prob_samples.shape))
 print("flat log prior shape: {0}".format(log_prior_samples.shape))
 
-all_samples = np.concatenate(
-    (samples, log_prob_samples[:, None]), axis=1
-)
+all_samples = np.concatenate((samples, log_prob_samples[:, None]), axis=1)
 
 labels = list(map(r"$\theta_{{{0}}}$".format, range(1, theta_dim + 1)))
 labels = [r"$M_0$", r"$M_{1/2}$"]
 labels += ["log prob"]
 
-ranges = [(0.0, 1.), (0.0, 1.), (4., 10.0)]
+ranges = [(0.0, 1.0), (0.0, 1.0), (log_prob_samples.min(), log_prob_samples.max())]
 
 az_samp = az.from_emcee(reader)
 print(az.summary(az_samp))
