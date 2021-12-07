@@ -1,3 +1,4 @@
+import torch
 import jax
 import jax.numpy as np
 import numpy as onp
@@ -15,21 +16,45 @@ import matplotlib.pyplot as plt
 from pipeline_kwargs import pipeline_kwargs
 
 
-@jax.jit
-def scale_X(x):
-    omega = (np.log(x[:, 0]) - 1.6271843) / 2.257083
-    gmuon = (1e10 * x[:, 1] - 0.686347) / (3.0785 * 3)
-    mh = (x[:, 2] - 124.86377) / 2.2839
-    out = np.stack([omega, gmuon, mh], axis=1)
+def scale_X(x, use_torch_backend=True):
+    """
+    x: torch tensor or numpy array
+    """
+    if use_torch_backend:
+        backend = torch
+    else:
+        backend = np
+    omega = (backend.log(x[0]) - 1.6271843) / 2.257083
+    gmuon = (1e10 * x[1] - 0.686347) / (3.0785 * 3)
+    mh = (x[2] - 124.86377) / 2.2839
+    out = backend.stack([omega, gmuon, mh])
     return out
 
-@jax.jit
-def inverse_scale_X(x):
-    omega = np.exp(x[:, 0] * 2.257083 + 1.6271843)
-    gmuon = (x[:, 1] * (3.0785 * 3) + 0.686347) / 1e10
-    mh = x[:, 2] * 2.2839 + 124.8637
-    out = np.stack([omega, gmuon, mh], axis=1)
+def inverse_scale_X(x, use_torch_backend=True):
+    """
+    x: torch tensor
+    """
+    if use_torch_backend:
+        backend = torch
+    else:
+        backend = np
+        
+    omega = backend.exp(x[0] * 2.257083 + 1.6271843)
+    gmuon = (x[1] * (3.0785 * 3) + 0.686347) / 1e10
+    mh = x[2] * 2.2839 + 124.8637
+    out = backend.stack([omega, gmuon, mh])
     return out
+
+def scale_Theta(theta, use_torch_backend=True):
+    """
+    x: torch tensor
+    """
+    if use_torch_backend:
+        backend = torch
+    else:
+        backend = np
+    std = 0.70710678
+    return (theta - 0.5)/std
 
 
 # --------------------------
@@ -48,17 +73,18 @@ logger = None
 
 
 # set up true model for posterior inference test
-simulator_kwargs = {"preprocess": scale_X}
+# simulator_kwargs = {"preprocess": scale_X}
+simulator_kwargs = {}
 simulate, obs_dim, theta_dim = get_simulator(**simulator_kwargs)
 X_true = np.array([[0.12, 251e-11, 125.0]])
-X_true = scale_X(X_true)
-X_sigma = np.array([0.03, 59e-11, 2.0])
+X_true = scale_X(X_true[0], use_torch_backend=False)[None, :]
+X_sigma = np.array([0.03, 59e-11, 2.0])*0.01
 print("X_true", X_true)
 
 # --------------------------
 # set up prior
 log_prior, sample_prior = SmoothedBoxPrior(
-    theta_dim=theta_dim, lower=0, upper=1, sigma=0.01
+    theta_dim=theta_dim, lower=0.2, upper=1, sigma=0.01
 )
 
 model, params, Theta_post = pipeline(
@@ -74,6 +100,7 @@ model, params, Theta_post = pipeline(
     sigma=X_sigma,
     scale_X=scale_X,
     inverse_scale_X=inverse_scale_X,
+    scale_Theta=scale_Theta,
     **pipeline_kwargs,
 )
 
