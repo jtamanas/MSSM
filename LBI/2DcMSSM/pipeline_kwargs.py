@@ -19,7 +19,7 @@ pipeline_kwargs = {
     "add_noise": True,
     # Sequential hyperparameters
     "num_rounds": 1,
-    "num_initial_samples": 150,
+    "num_initial_samples": 2000,
     "num_samples_per_round": 100 // 10,
     "num_warmup_per_round": 1000,
     "num_chains": 10,

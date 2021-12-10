@@ -1,3 +1,4 @@
+import jax.numpy as np
 from typing import Callable, List, Optional
 import multiprocessing as mp
 import tempfile
@@ -15,11 +16,11 @@ class Worker:
         if self.chdir:
             with tempfile.TemporaryDirectory() as tdir:
                 os.chdir(tdir)
-                results = [self.f(*args) for args in self.chunk]
+                results = [self.f(args) for args in self.chunk]
                 os.chdir(cdir)
             return results
         else:
-            return [self.f(*args) for args in self.chunk]
+            return [self.f(args) for args in self.chunk]
 
 
 def work(worker, cdir):
@@ -44,10 +45,9 @@ def apply_distributed(
     nprocs: int, Optional
     """
     if nprocs is None:
-        n = mp.cpu_count()
-    else:
-        n = nprocs
-    chunks = [args_array[i : i + n] for i in range(0, len(args_array), n)]
+        nprocs = mp.cpu_count() - 1
+        
+    chunks = [args_array[i : i + nprocs] for i in range(0, len(args_array), nprocs)]
     workers = [Worker(f, chunk, chdir) for chunk in chunks]
     procs = mp.Pool(len(chunks))
     cdir = os.getcwd()
@@ -56,7 +56,10 @@ def apply_distributed(
         results.append(procs.apply_async(work, (worker, cdir)))
     procs.close()
     procs.join()
-    return [res.get() for res in results]
+    
+    results = np.array([res.get() for res in results])
+    results = results.reshape(len(args_array), -1)
+    return results
 
 
 def test_f(x, y):
