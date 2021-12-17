@@ -38,7 +38,8 @@ def theta_addunits(unitless_theta):
     theta[:, 0] = 1000 * unitless_theta[:, 0] * 10.0
     theta[:, 1] = 1000 * unitless_theta[:, 1] * 10.0
     theta[:, 2] = 0
-    theta[:, 3] = 48.5
+    # theta[:, 3] = 48.5
+    theta[:, 3] = 20.0
     return theta
 
 

@@ -16,45 +16,35 @@ import matplotlib.pyplot as plt
 from pipeline_kwargs import pipeline_kwargs
 
 
-def scale_X(x, use_torch_backend=True):
+# from jax.config import config
+# config.update('jax_disable_jit', True)
+
+def scale_X(x):
     """
-    x: torch tensor or numpy array
+    x: jax.numpy array
     """
-    if use_torch_backend:
-        backend = torch
-    else:
-        backend = np
-    omega = (backend.log(x[0]) - 1.6271843) / 2.257083
-    gmuon = (1e10 * x[1] - 0.686347) / (3.0785 * 3)
-    mh = (x[2] - 124.86377) / 2.2839
-    out = backend.stack([omega, gmuon, mh])
+    # omega = (backend.log(x[0]) - 1.6271843) / 2.257083
+    # gmuon = (1e10 * x[1] - 0.686347) / (3.0785 * 3)
+    # mh = (x[2] - 124.86377) / 2.2839
+    # print("x shape", x.shape)
+    omega = np.atleast_2d(np.log(x[..., 0]) - 2).T
+    gmuon = np.atleast_2d(1e10 * x[..., 1]).T
+    mh = np.atleast_2d((x[..., 2] - 124.86377) / 2.2839).T
+    # print("omega shape", omega.shape)
+    out = np.hstack([omega, gmuon, mh])
+    return x
     return out
 
-def inverse_scale_X(x, use_torch_backend=True):
-    """
-    x: torch tensor
-    """
-    if use_torch_backend:
-        backend = torch
-    else:
-        backend = np
-        
-    omega = backend.exp(x[0] * 2.257083 + 1.6271843)
-    gmuon = (x[1] * (3.0785 * 3) + 0.686347) / 1e10
-    mh = x[2] * 2.2839 + 124.8637
-    out = backend.stack([omega, gmuon, mh])
-    return out
 
-def scale_Theta(theta, use_torch_backend=True):
+def scale_Theta(theta):
     """
-    x: torch tensor
+    theta : jax.numpy array
+    
+    theta is uniform between 0 and 1 
     """
-    if use_torch_backend:
-        backend = torch
-    else:
-        backend = np
     std = 0.70710678
-    return (theta - 0.5)/std
+    # return theta
+    return (theta - 0.5) / std
 
 
 # --------------------------
@@ -77,17 +67,18 @@ logger = None
 simulator_kwargs = {}
 simulate, obs_dim, theta_dim = get_simulator(**simulator_kwargs)
 X_true = np.array([[0.12, 251e-11, 125.0]])
-X_true = scale_X(X_true[0], use_torch_backend=False)[None, :]
-X_sigma = np.array([0.03, 59e-11, 2.0])*0.01
+# X_true = scale_X(X_true, use_torch_backend=False)
+
+X_sigma = np.array([0.03, 59e-11, 2.0]) * 1.
 print("X_true", X_true)
 
 # --------------------------
 # set up prior
 log_prior, sample_prior = SmoothedBoxPrior(
-    theta_dim=theta_dim, lower=0.2, upper=1, sigma=0.01
+    theta_dim=theta_dim, lower=0.0, upper=1, sigma=0.01
 )
 
-model, params, Theta_post = pipeline(
+model, log_prob, params, Theta_post = pipeline(
     rng,
     X_true,
     get_simulator,
@@ -98,23 +89,24 @@ model, params, Theta_post = pipeline(
     simulator_kwargs=simulator_kwargs,
     # scaling
     sigma=X_sigma,
-    scale_X=scale_X,
-    inverse_scale_X=inverse_scale_X,
+    scale_X=None,
     scale_Theta=scale_Theta,
     **pipeline_kwargs,
 )
 
-parallel_log_prob = jax.vmap(model.apply, in_axes=(0, None, None))
+parallel_log_prob = jax.vmap(log_prob, in_axes=(0, None, None))
 
 
 def potential_fn(theta):
     if len(theta.shape) == 1:
         theta = theta[None, :]
 
+    log_P = log_prior(theta)
+
     log_L = parallel_log_prob(params, X_true, theta)
     log_L = log_L.mean(axis=0)
 
-    log_post = -log_L - log_prior(theta)
+    log_post = -(log_L + log_P)
     return log_post.sum()
 
 
@@ -152,6 +144,8 @@ ranges = [
     (0.0, 1.0),
     (posterior_log_probs.min(), posterior_log_probs.max()),
 ]
+
+# import IPython; IPython.embed()
 
 corner.corner(onp.array(samples), range=ranges, labels=labels)
 
