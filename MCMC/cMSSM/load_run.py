@@ -7,7 +7,7 @@ import arviz as az
 
 theta_dim = 4
 
-filename = f"runs/{mcmc_settings['nwalkers']}walkers_{mcmc_settings['max_n']}sampleseach_{mcmc_settings['simulator']}.h5"
+filename = f"runs/fixedObs_{mcmc_settings['nwalkers']}walkers_{mcmc_settings['max_n']}sampleseach_{mcmc_settings['simulator']}.h5"
 reader = emcee.backends.HDFBackend(filename)
 
 tau = reader.get_autocorr_time(tol=0)
@@ -33,7 +33,7 @@ labels = list(map(r"$\theta_{{{0}}}$".format, range(1, theta_dim + 1)))
 labels = [r"$M_0$", r"$M_{1/2}$", r"$A_0$", r"$\tan\beta$"]
 labels += ["log prob"]
 
-ranges = [(0.0, 1.), (0.0, 1.), (0.0, 1.), (0.0, 1.), (11., 15.05)]
+ranges = [(0.0, 1.), (0.0, 1.), (0.0, 1.), (0.0, 1.), (0., 7.5)]
 
 az_samp = az.from_emcee(reader)
 print(az.summary(az_samp))

@@ -2,8 +2,8 @@ pipeline_kwargs = {
     # Model hyperparameters
     "model_type": "classifier",  # "classifier" or "flow"
     "ensemble_size": 5,
-    "num_layers": 5,
-    "hidden_dim": 32,
+    "num_layers": 7,
+    "hidden_dim": 128,
     # Optimizer hyperparmeters
     "max_norm": 1e-3,
     "learning_rate": 3e-4,
@@ -18,7 +18,7 @@ pipeline_kwargs = {
     "num_workers": 0,
     "add_noise": True,
     # Sequential hyperparameters
-    "num_rounds": 1,
+    "num_rounds": 3,
     "num_initial_samples": 1500,
     "num_samples_per_round": 100 // 10,
     "num_warmup_per_round": 1000,

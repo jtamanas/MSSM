@@ -10,6 +10,7 @@ from tqdm.auto import tqdm
 
 
 sys.path.append("/media/jt/data/Projects/MSSM/micromegas_5.2.7.a/MSSM/")
+from utils.distributed import apply_distributed
 from pymicromegas import MicromegasSettings, SugraParameters
 from spheno import spheno
 from softsusy import softsusy
@@ -18,16 +19,20 @@ micromegas = {"spheno": spheno, "softsusy": softsusy}
 
 def sim_wrapper(theta):
     params = [SugraParameters(*th) for th in theta]
-    results = micromegas[mcmc_settings["simulator"]](params=params, settings=settings)
+    _simulator = micromegas[mcmc_settings["simulator"]]
+    results = _simulator(params=params, settings=settings)
     out = np.array([results.omega(), results.gmuon(), results.mhsm()])
     out = out.T
     # print(out)
     return out
 
+distributed_simulator = lambda args: apply_distributed(sim_wrapper, args, nprocs=1)
+
 
 def log_likelihood(unitless_theta):
     theta = theta_addunits(unitless_theta)
-    th_obs = sim_wrapper(theta)
+    th_obs = distributed_simulator([theta])
+    # th_obs = sim_wrapper(theta)
     lnp = -0.5 * np.sum(((th_obs - exp_obs) / sigma_obs) ** 2, axis=1)
     return np.nan_to_num(lnp, nan=-np.inf)
 
@@ -69,15 +74,15 @@ settings = MicromegasSettings(
 
 unitless_prior, _ = SmoothedBoxPrior(theta_dim=theta_dim, lower=0, upper=1, sigma=0.01)
 
-exp_obs = np.array([0.12, 2e-11, 125.0])
-sigma_obs = np.array([0.06, 5e-11, 5.0])
+exp_obs = np.array([0.12, 251e-11, 125.0])
+sigma_obs = np.array([0.03, 59e-11, 2.0]) 
 
 coords = np.random.rand(mcmc_settings["nwalkers"], theta_dim)
 
 
 # Set up the backend
 # Don't forget to clear it in case the file already exists
-filename = f"runs/{mcmc_settings['nwalkers']}walkers_{mcmc_settings['max_n']}sampleseach_{mcmc_settings['simulator']}.h5"
+filename = f"runs/BigObs2_{mcmc_settings['nwalkers']}walkers_{mcmc_settings['max_n']}sampleseach_{mcmc_settings['simulator']}.h5"
 backend = emcee.backends.HDFBackend(filename)
 # backend.reset(mcmc_settings["nwalkers"], theta_dim)
 

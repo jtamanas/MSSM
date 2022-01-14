@@ -5,6 +5,7 @@ import numpy as onp
 import sys
 
 sys.path.append("/media/jt/data/Projects/MSSM/micromegas_5.2.7.a/MSSM/")
+from utils.distributed import apply_distributed
 from pymicromegas import MicromegasSettings, SugraParameters
 from spheno import spheno
 from softsusy import softsusy
@@ -29,6 +30,7 @@ settings = MicromegasSettings(
 
 
 def theta_addunits(unitless_theta):
+    unitless_theta = onp.atleast_2d(unitless_theta)
     theta = onp.zeros_like(unitless_theta)
     # WARNING: changes unitless_theta in place
     theta[:, 0] = 1000 * unitless_theta[:, 0] * 10.0
@@ -39,8 +41,7 @@ def theta_addunits(unitless_theta):
     return theta
 
 
-
-def get_simulator(micromegas_simulator=None, **kwargs):
+def get_simulator(micromegas_simulator=None, preprocess=None, **kwargs):
     """
     Parameters:
     -----------
@@ -53,23 +54,27 @@ def get_simulator(micromegas_simulator=None, **kwargs):
         obs_dim: the dimension of the observation space
         theta_dim: the dimension of the theta space
     """
+    global simulator
+    
+    if preprocess is None:
+        preprocess = lambda x: x
 
-    def simulator(rng, theta, num_samples_per_theta=1):
+    def simulator(unitless_theta):
         """
         Parameters:
         -----------
         rng: jax rng object
         theta: cMSSM parameters
-        num_samples_per_theta: int  # number of samples to take per theta
-        
+
         Returns:
             observables
         """
-        theta = theta_addunits(theta)
+        theta = theta_addunits(unitless_theta)
         params = [SugraParameters(*th) for th in theta]
         results = _simulator(params=params, settings=settings)
         out = onp.array([results.omega(), results.gmuon(), results.mhsm()])
         out = out.T
+        out = preprocess(out)
         return out
 
     if micromegas_simulator is None:
@@ -78,7 +83,8 @@ def get_simulator(micromegas_simulator=None, **kwargs):
     obs_dim = 3
     theta_dim = 4
     _simulator = micromegas[micromegas_simulator]
+    
+    distributed_simulator = lambda rng, args, num_samples_per_theta=1: apply_distributed(simulator, args, nprocs=10)
 
-    return simulator, obs_dim, theta_dim
-
-
+    return distributed_simulator, obs_dim, theta_dim
+    # return simulator, obs_dim, theta_dim
