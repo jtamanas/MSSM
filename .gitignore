@@ -136,6 +136,8 @@ venv.bak/
 *.gz
 *tfevents*
 *.h5
+*.npy
+
 
 /.vscode
 /micromegas_5.0.4.tgz
@@ -167,3 +169,6 @@ MCMC/2DcMSSM/LesH*
 MCMC/2DcMSSM/SPheno.spc
 LBI/2DcMSSM/SPheno.spc
 LBI/2DcMSSM/LesH* 
+micromegas/
+*.in
+*.spc

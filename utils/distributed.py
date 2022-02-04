@@ -1,4 +1,5 @@
 import jax.numpy as np
+import numpy as onp
 from typing import Callable, List, Optional
 import multiprocessing as mp
 import tempfile
@@ -56,8 +57,13 @@ def apply_distributed(
         results.append(procs.apply_async(work, (worker, cdir)))
     procs.close()
     procs.join()
-    
-    results = np.array([res.get() for res in results])
+    # import IPython; IPython.embed()
+    out = []
+    for result in results:
+        outputs = result.get()
+        for output in outputs:
+            out.append(output[0])
+    results = onp.array(out)
     results = results.reshape(len(args_array), -1)
     return results
 
