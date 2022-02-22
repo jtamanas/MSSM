@@ -10,11 +10,6 @@ from lbi.prior import SmoothedBoxPrior
 from lbi.sampler import hmc
 from simulator import get_simulator, theta_addunits, theta_ranges
 
-
-from simulator import get_simulator_with_more_observables
-import limits_plots as lp
-
-
 import corner
 import matplotlib.pyplot as plt
 
@@ -33,12 +28,12 @@ def scale_X(x):
     # gmuon = (1e10 * x[1] - 0.686347) / (3.0785 * 3)
     # mh = (x[2] - 124.86377) / 2.2839
     # print("x shape", x.shape)
-    omega = np.atleast_2d(np.log(np.clip(x[..., 0], a_min=1e-5, a_max=None)) - 2).T
+    omega = np.atleast_2d(np.log(x[..., 0]) - 2).T
     gmuon = np.atleast_2d(1e10 * x[..., 1]).T
     mh = np.atleast_2d((x[..., 2] - 124.86377) / 2.2839).T
     # print("omega shape", omega.shape)
     out = np.hstack([omega, gmuon, mh])
-    # return x
+    return x
     return out
 
 
@@ -70,8 +65,8 @@ logger = None
 # set up true model for posterior inference test
 simulator_kwargs = {}
 simulate, obs_dim, theta_dim = get_simulator(**simulator_kwargs)
-X_true = np.array([[0.12, 251e-11, 125.0]])
-X_sigma = np.array([0.02, 59e-11, 1.0])
+X_true = np.array([[0.12, 125.0]])
+X_sigma = np.array([0.1, 2.0]) * 1.0
 
 print("X_true", X_true)
 
@@ -80,9 +75,6 @@ print("X_true", X_true)
 log_prior, sample_prior = SmoothedBoxPrior(
     theta_dim=theta_dim, lower=-1.0, upper=1.0, sigma=0.01
 )
-
-# Plot prior
-lp.prior_plotter(sample_prior)
 
 model, log_prob, params, Theta_post = pipeline(
     rng,
@@ -140,8 +132,8 @@ samples = mcmc.get_samples(group_by_chain=False).squeeze()
 
 # samples are unitless. let's scale them to the true values
 unitful_samples = theta_addunits(samples)
-# ignore squarks
-unitful_samples = np.delete(unitful_samples, slice(11, 20), 1)
+
+unitful_samples = onp.hstack([unitful_samples[:, :11], unitful_samples[:, 20:]])
 
 posterior_log_probs = -mcmc.get_extra_fields()["potential_energy"]
 unitful_samples = np.hstack([unitful_samples, posterior_log_probs[:, None]])
@@ -174,28 +166,14 @@ labels = [
     r"$A_{\tau}$",
 ]
 labels += ["log prob"]
-ranges = [
-    [-2000, 2000],
-    [-1200, 1200],
-    [-2000, 2000],
-    [400, 4000],
-    [100, 4000],
-    [100, 1000],
-    [100, 4000],
-    [100, 4000],
-    [100, 1000],
-    [100, 4000],
-    [400, 4000],
-    [1, 50],
-    [-4000, 4000],
-    [-4000, 4000],
-    [-4000, 4000],
-]
-ranges = onp.array(ranges)
+theta_ranges = np.array(theta_ranges)
+ranges = np.stack([theta_ranges[:, 0] - 1, np.ones_like(theta_ranges[:, 0])]).T
+ranges = theta_addunits(ranges.T + 1e-10).T  # add a small number to avoid 0
+ranges = onp.hstack([ranges.T[:, :11], ranges.T[:, 20:]]).T
 
-ranges = np.vstack(
-    [ranges, np.array([(posterior_log_probs.min(), posterior_log_probs.max())])]
-)
+ranges = np.vstack([ranges, np.array([(posterior_log_probs.min(), posterior_log_probs.max())])])
+
+# ignore squarks
 
 corner.corner(onp.array(unitful_samples), range=ranges, labels=labels)
 
@@ -203,41 +181,31 @@ if hasattr(logger, "plot"):
     logger.plot(f"Final Corner Plot", plt, close_plot=True)
 else:
     plt.savefig("posterior_corner.png")
-plt.clf()
 
-
+# Run simulations on the samples
 # --------------------------
-# --------------------------
-# Run full simulations on the samples
-# --------------------------
-
-
 # First shuffle samples to get a random order
 _, _, observables_rng = jax.random.split(rng, num=3)
 samples = jax.random.shuffle(observables_rng, samples, axis=0)
 # Generate the observables from 2000 samples of the posterior
-big_simulator = get_simulator_with_more_observables()
+observables = simulate(rng, samples[:2000])
+# take out nan values
+observables = observables[~np.any(np.isnan(observables), axis=1)]
+observables = onp.array(observables)
 
-num_samples = -1  # -1 means all
-results = big_simulator(rng, samples[:num_samples])
+observables[:, 0] = onp.log10(observables[:, 0]) # log of omega h^2
 
-lower_limits = X_true - 3 * X_sigma
-upper_limits = X_true + 3 * X_sigma
-limits = onp.stack([lower_limits, upper_limits]).squeeze()
+X_true = onp.array(X_true)
+X_true[:, 0] = onp.log10(X_true[:, 0]) # log of omega h^2
 
-lp.plot_observable_corner(X_true, results, logger=logger)
+ranges = [(-6, 3), (110, 130)]
+labels = [
+    r"$\log\Omega$" + r"$h^2$",  # not sure why i need two strings here for latex
+    r"$M_h$",
+]
+corner.corner(onp.array(observables), range=ranges, truths=onp.array(X_true[0]), labels=labels)
+if hasattr(logger, "plot"):
+    logger.plot(f"Final Corner Plot of Observables", plt, close_plot=True)
+else:
+    plt.savefig("observables_corner.png")
 
-
-lp.plot_direct_detection_limits(results, logger=logger, filename="unfiltered_direct_detection.png")
-lp.plot_mass_splitting(results, logger=logger, filename="unfiltered_LHC_constraints.png")
-lp.plot_masses_corner(results, logger=logger, filename="unfiltered_masses_corner.png")
-
-filtered_samples, filtered_results = lp.filter_observables(
-    samples[:num_samples], results, limits
-)
-
-print(filtered_samples.shape)
-
-lp.plot_direct_detection_limits(filtered_results, logger=logger)
-lp.plot_mass_splitting(filtered_results, logger=logger)
-lp.plot_masses_corner(filtered_results, logger=logger)

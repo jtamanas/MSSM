@@ -172,3 +172,7 @@ LBI/2DcMSSM/LesH*
 micromegas/
 *.in
 *.spc
+LBI/pMSSM - nogmuon/LesHin
+LBI/pMSSM - nogmuon/LesHout
+LBI/pMSSM_backip/LesHout
+LBI/pMSSM_backip/LesHin
