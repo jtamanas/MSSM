@@ -45,16 +45,18 @@ micromegas = {"spheno": spheno}
 
 # theta_ranges = [(take_abs_value_in_micromegas, low_in_TeV, high_in_TeV)]
 theta_ranges = [
-    (False, 0.3, 1.0),
-    # (False, 0.05, 4),
-    (False, 0.0, 0.001),  # this is R. R = M1 * (1/|mu| + 1/|M2|) and we want < 1
-    (False, 0.3, 1.0),
+    (False, 0.1, 4.0),
+    (False, 0.05, 1),
+    # (False, 0.0, 0.001),  # this is R. R = M1 * (1/|mu| + 1/|M2|) and we want < 1
+    (False, 0.1, 4.0),
     (True, 0.4, 4.0),
     (True, 0.1, 4.0),
-    (True, 0.001, 0.0012),  # M_L2  # this is R. R = M_L2/|M_1|
+    # (True, 0.0005, 0.0015),  # M_L2  # this is R. R = M_L2/|M_1|
+    (True, 0.1, 1.0),  # M_L2  
     (True, 0.1, 4.0),
     (True, 0.1, 4.0),
-    (True, 0.001, 0.002),  # M_R2  # this is R. R = M_R2/|M_1|
+    # (True, 0.0005, 0.0015),  # M_R2  # this is R. R = M_R2/|M_1|
+    (True, 0.1, 1.0),  # M_R2  
     (True, 0.1, 4.0),
     (True, 0.4, 4.0),
     # skip squark masses
@@ -94,17 +96,30 @@ def theta_addunits(unitless_theta):
         theta[:, i] = (theta[:, i] * (high - low) + sgn * low) * 1000  # TeV
 
     # invert R to get M1 (R = M1/min(|mu|, |M2|))
-    sgn = onp.sign(theta[:, M1_idx])
-    theta[:, M1_idx] = sgn * 50 + theta[:, M1_idx] * onp.min(
-        [onp.abs(theta[:, mu_idx]), onp.abs(theta[:, M2_idx])], axis=0
-    )
+    # sgn = onp.sign(theta[:, M1_idx])
+    # theta[:, M1_idx] = sgn * 10 + theta[:, M1_idx] * onp.min(
+    #     [onp.abs(theta[:, mu_idx]), onp.abs(theta[:, M2_idx])], axis=0
+    # )
 
     # invert R to get M_L2 (R = M_L2/|M_1|)
-    theta[:, M_L2_idx] = theta[:, M_L2_idx] * onp.abs(theta[:, M1_idx])
+    # theta[:, M_L2_idx] = theta[:, M_L2_idx] * onp.min(
+    #     [
+    #         onp.abs(theta[:, mu_idx]),
+    #         onp.abs(theta[:, M1_idx]),
+    #         onp.abs(theta[:, M2_idx]),
+    #     ],
+    #     axis=0,
+    # )
 
     # invert R to get M_R2 (R = M_R2/|M_1|)
-    theta[:, M_R2_idx] = theta[:, M_R2_idx] * onp.abs(theta[:, M1_idx])
-
+    # theta[:, M_R2_idx] = theta[:, M_R2_idx] * onp.min(
+    #     [
+    #         onp.abs(theta[:, mu_idx]),
+    #         onp.abs(theta[:, M1_idx]),
+    #         onp.abs(theta[:, M2_idx]),
+    #     ],
+    #     axis=0,
+    # )
     # insert 9 squark masses
     theta = onp.insert(theta, [squark_idx], [4000 for i in range(9)], axis=1)
 
@@ -129,19 +144,23 @@ def get_simulator(micromegas_simulator=None, preprocess=None, **kwargs):
     if preprocess is None:
         preprocess = lambda x: x
 
-    # settings = MicromegasSettings(
-    #     relic_density=True,
-    #     masses=True,
-    #     # gmuon=True,
-    #     # bsg=True,
-    #     # bsmumu=True,
-    #     # btaunu=True,
-    #     # delta_rho=True,
-    #     # sort_odd=True,
-    #     fast=True,
-    #     # beps=0.0001,
-    #     # cut=0.01,
-    # )
+    settings = MicromegasSettings(
+        relic_density=True,
+        masses=True,
+        gmuon=True,
+        fast=True,
+        # nucleon_amplitudes=True,
+        direct_detection_pvalues=True,
+        # masslimits=True,
+        # bsg=True,
+        # bsmumu=True,
+        # btaunu=True,
+        # delta_rho=True,
+        # sort_odd=True,
+        # beps=0.0001,
+        # cut=0.01,
+    )
+
     def simulator(unitless_theta):
         """
         Parameters:
@@ -154,9 +173,11 @@ def get_simulator(micromegas_simulator=None, preprocess=None, **kwargs):
         """
         theta = theta_addunits(unitless_theta)
         params = [EwsbParameters(*th) for th in theta]
-        results = _simulator(params=params)  # , settings=settings)
+        results = _simulator(params=params, settings=settings)
         # import IPython; IPython.embed()
-        out = onp.array([results.omega, results.gmuon, results.mhsm])
+        out = onp.array(
+            [results.omega, results.gmuon, results.mhsm, results.pval_xenon1T]
+        )
         out = out.T
         out = preprocess(out)
         return out
@@ -165,7 +186,7 @@ def get_simulator(micromegas_simulator=None, preprocess=None, **kwargs):
         micromegas_simulator = "spheno"
         # micromegas_simulator = "softsusy"
 
-    obs_dim = 3
+    obs_dim = 4
     theta_dim = 15
     _simulator = micromegas[micromegas_simulator]
 

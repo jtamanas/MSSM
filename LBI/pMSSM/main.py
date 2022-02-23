@@ -36,8 +36,9 @@ def scale_X(x):
     omega = np.atleast_2d(np.log(np.clip(x[..., 0], a_min=1e-5, a_max=None)) - 2).T
     gmuon = np.atleast_2d(1e10 * x[..., 1]).T
     mh = np.atleast_2d((x[..., 2] - 124.86377) / 2.2839).T
+    pval = np.atleast_2d(np.clip(x[..., 3], a_min=None, a_max=X_true[:, 3])).T
     # print("omega shape", omega.shape)
-    out = np.hstack([omega, gmuon, mh])
+    out = np.hstack([omega, gmuon, mh, pval])
     # return x
     return out
 
@@ -70,8 +71,10 @@ logger = None
 # set up true model for posterior inference test
 simulator_kwargs = {}
 simulate, obs_dim, theta_dim = get_simulator(**simulator_kwargs)
-X_true = np.array([[0.12, 251e-11, 125.0]])
-X_sigma = np.array([0.02, 59e-11, 1.0])
+# --------------------------
+# The true values correspond to: omega, gmuon, mh, xenon pvals
+X_true = np.array([[0.12, 251e-11, 125.0, 0.5]])
+X_sigma = np.array([0.02, 59e-11, 1.0, 1e-5])
 
 print("X_true", X_true)
 
@@ -116,7 +119,7 @@ def potential_fn(theta):
     return log_post.sum()
 
 
-num_chains = 10
+num_chains = 20
 init_theta = sample_prior(rng, num_samples=num_chains)
 
 mcmc = hmc(
@@ -129,7 +132,7 @@ mcmc = hmc(
     step_size=1e0,
     max_tree_depth=8,
     num_warmup=2000,
-    num_samples=500,
+    num_samples=750,
     num_chains=num_chains,
     extra_fields=("potential_energy",),
     chain_method="vectorized",
@@ -221,23 +224,46 @@ big_simulator = get_simulator_with_more_observables()
 num_samples = -1  # -1 means all
 results = big_simulator(rng, samples[:num_samples])
 
-lower_limits = X_true - 3 * X_sigma
-upper_limits = X_true + 3 * X_sigma
+lower_limits = onp.array(X_true - 3 * X_sigma)
+# lower limit for direct detection is 3 sigma excluded
+lower_limits[:, 3] = 2 * 0.02275
+upper_limits = onp.array(X_true + 3 * X_sigma)
 limits = onp.stack([lower_limits, upper_limits]).squeeze()
 
-lp.plot_observable_corner(X_true, results, logger=logger)
 
-
-lp.plot_direct_detection_limits(results, logger=logger, filename="unfiltered_direct_detection.png")
-lp.plot_mass_splitting(results, logger=logger, filename="unfiltered_LHC_constraints.png")
+lp.M1_vs_mchi(samples[:num_samples], results)
+lp.plot_observable_corner(X_true, X_sigma, results, logger=logger)
+lp.plot_direct_detection_limits(
+    results, logger=logger, filename="unfiltered_direct_detection.png"
+)
+lp.plot_mass_splitting(
+    results, logger=logger, filename="unfiltered_LHC_constraints.png"
+)
 lp.plot_masses_corner(results, logger=logger, filename="unfiltered_masses_corner.png")
 
-filtered_samples, filtered_results = lp.filter_observables(
-    samples[:num_samples], results, limits
+filtered_unitful_samples, filtered_results = lp.filter_observables(
+    unitful_samples[:num_samples], results, limits
 )
 
-print(filtered_samples.shape)
+print(filtered_unitful_samples.shape[0], "samples after filtering")
 
 lp.plot_direct_detection_limits(filtered_results, logger=logger)
 lp.plot_mass_splitting(filtered_results, logger=logger)
-lp.plot_masses_corner(filtered_results, logger=logger)
+try:
+    lp.plot_masses_corner(filtered_results, logger=logger)
+except:
+    print("Could not plot masses corner")
+
+try:
+    corner.corner(onp.array(filtered_unitful_samples), range=ranges, labels=labels)
+
+    if hasattr(logger, "plot"):
+        logger.plot(f"Final Corner Plot", plt, close_plot=True)
+    else:
+        plt.savefig("filtered_posterior_corner.png")
+    plt.clf()
+except:
+    print("Could not plot filtered posterior corner")
+
+onp.save("unitful_posterior_samples.npy", unitful_samples[:num_samples])
+onp.save("results.npy", results)

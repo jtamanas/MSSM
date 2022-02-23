@@ -3,6 +3,34 @@ import jax
 import numpy as onp
 import matplotlib.pyplot as plt
 import corner
+from cycler import cycler
+
+
+pyplot_params = {
+    "backend": "TkAgg",
+    "font.family": "serif",
+    "font.serif": ["CMU serif"],
+    "axes.prop_cycle": cycler(
+        "color",
+        [
+            "steelblue",
+            "firebrick",
+            "goldenrod",
+            "mediumorchid",
+            "darkslateblue",
+            "DarkSalmon",
+            "LightSkyBlue",
+            "Navy",
+            "Peru",
+        ],
+    ),
+    # "text.usetex": True,
+    # "text.latex.preamble": [
+    #     r"\usepackage{physics} \usepackage{amsmath} \usepackage{bm}"
+    # ],
+}
+
+plt.rcParams.update(pyplot_params)
 
 
 def plot_direct_detection_limits(
@@ -380,12 +408,16 @@ def plot_direct_detection_limits(
     pass
 
 
-def plot_observable_corner(X_true, results, logger=None, filename=None):
+def plot_observable_corner(X_true, X_sigma, results, logger=None, filename=None):
     if filename is None:
         filename = "observable_corner.png"
 
+    # Sample a gaussian distribution for each observable
+    true_likelihood_samples = onp.random.normal(
+        loc=onp.array(X_true[0, :3]), scale=onp.array(X_sigma[:3]), size=(30000, 3)
+    )
     observables_with_nans = onp.array(
-        [results["omega"], results["gmuon"], results["mhsm"], results["mneut1"]]
+        [results["omega"], results["gmuon"], results["mhsm"]]
     ).T
 
     # take out nan values
@@ -393,25 +425,43 @@ def plot_observable_corner(X_true, results, logger=None, filename=None):
     observables = observables_with_nans[nan_mask]
     observables = onp.array(observables)
 
+    true_likelihood_samples[:, 0] = onp.log10(
+        true_likelihood_samples[:, 0]
+    )  # log of omega h^2
     observables[:, 0] = onp.log10(observables[:, 0])  # log of omega h^2
-    observables[:, 3] = onp.abs(
-        observables[:, 3]
-    )  # abs of mchi (idk why it goes negative)
 
     X_true = onp.array(X_true)
     X_true[:, 0] = onp.log10(X_true[:, 0])  # log of omega h^2
-    X_true = onp.append(X_true, [[None]], axis=1)  # true mchi is not knonwn
 
-    ranges = [(-4, 2), (7e-12, 551e-11), (121, 126), (0, 1000)]
+    ranges = [(-4, 2), (7e-12, 551e-11), (121, 126)]  # , (0, 1000)]
     labels = [
         r"$\log\Omega$" + r"$h^2$",  # not sure why i need two strings here for latex
         r"$g_\mu$",
         r"$M_h$",
-        r"$M_\chi$",
+        # r"$M_\chi$",
     ]
-    corner.corner(
-        onp.array(observables), range=ranges, truths=onp.array(X_true[0]), labels=labels
+
+    fig = corner.corner(
+        onp.array(true_likelihood_samples),
+        range=ranges,
+        labels=labels,
+        color="#4682b4",
+        hist_kwargs={"density": True, "alpha": 0.5},
+        plot_datapoints=False,
+        # contourf_kwargs={"alpha": 0.3},
+        contour_kwargs={"alpha": 0.3},
+        plot_density=False,
     )
+
+    fig = corner.corner(
+        onp.array(observables),
+        range=ranges,
+        truths=onp.array(X_true[0, :3]),
+        labels=labels,
+        hist_kwargs={"density": True, "color": "#000000"},
+        fig=fig,
+    )
+
     if hasattr(logger, "plot"):
         logger.plot(f"Final Corner Plot of Observables", plt, close_plot=True)
     else:
@@ -428,17 +478,17 @@ def plot_masses_corner(results, logger=None, filename=None):
     all_masses = onp.array(
         [
             results["mneut1"],
-            results["msel"],
-            results["msml"],
             results["mser"],
+            results["msel"],
             results["msmr"],
+            results["msml"],
         ]
     ).T
 
     # ? What's a negative neutralino mass?
     all_masses = onp.abs(all_masses)
 
-    ranges = [(0, 2000), (0, 2000), (0, 1000), (0, 1000), (0, 1000)]
+    ranges = [(0, 1000), (0, 1000), (0, 1000), (0, 1000), (0, 1000)]
     # ranges = None
     labels = [
         r"$M_\chi$",
@@ -448,9 +498,7 @@ def plot_masses_corner(results, logger=None, filename=None):
         r"$M_{\tilde{\mu}_L}$",
     ]
 
-    corner.corner(
-        onp.array(all_masses), range=ranges, labels=labels
-    )
+    corner.corner(onp.array(all_masses), range=ranges, labels=labels)
     if hasattr(logger, "plot"):
         logger.plot(f"Final Corner Plot of Observables", plt, close_plot=True)
     else:
@@ -630,7 +678,9 @@ def filter_observables(params, results, limits):
     Filter params and results to only consider the points which
     fall within the limits of the observables.
     """
-    observables = onp.array([results["omega"], results["gmuon"], results["mhsm"]]).T
+    observables = onp.array(
+        [results["omega"], results["gmuon"], results["mhsm"], results["pval_xenon1T"]]
+    ).T
 
     mask_idx = onp.all(observables > limits[0], axis=1)
     mask_idx &= onp.all(observables < limits[1], axis=1)
@@ -639,6 +689,24 @@ def filter_observables(params, results, limits):
     filtered_results = {key: value[mask_idx] for key, value in results.items()}
 
     return params[mask_idx], filtered_results
+
+
+def M1_vs_mchi(params, results, logger=None, filename=None):
+    if filename is None:
+        filename = "M1_vs_mchi.png"
+
+    unitful_samples = theta_addunits(params)
+    M1 = unitful_samples[:, 1]
+    chi_masses = onp.abs(results["mneut1"])
+    plt.scatter(M1, chi_masses)
+
+    if hasattr(logger, "plot"):
+        logger.plot(f"Final Corner Plot of Observables", plt, close_plot=True)
+    else:
+        plt.savefig(filename)
+
+    plt.clf()
+    pass
 
 
 if __name__ == "__main__":
