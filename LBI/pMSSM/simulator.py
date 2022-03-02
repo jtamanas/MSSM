@@ -4,8 +4,8 @@ import numpy as onp
 from tqdm.auto import tqdm
 
 from utils.distributed import apply_distributed
-
 from pymicromegas import EwsbParameters, spheno, MicromegasSettings
+from atlas_constraints import calc_atlas_pvals
 
 """
 Ranges taken from Hollingsworth et al. All in TeV
@@ -52,11 +52,11 @@ theta_ranges = [
     (True, 0.4, 4.0),
     (True, 0.1, 4.0),
     # (True, 0.0005, 0.0015),  # M_L2  # this is R. R = M_L2/|M_1|
-    (True, 0.1, 1.0),  # M_L2  
+    (True, 0.1, 1.0),  # M_L2
     (True, 0.1, 4.0),
     (True, 0.1, 4.0),
     # (True, 0.0005, 0.0015),  # M_R2  # this is R. R = M_R2/|M_1|
-    (True, 0.1, 1.0),  # M_R2  
+    (True, 0.1, 1.0),  # M_R2
     (True, 0.1, 4.0),
     (True, 0.4, 4.0),
     # skip squark masses
@@ -95,38 +95,32 @@ def theta_addunits(unitless_theta):
         sgn = onp.sign(theta[:, i])
         theta[:, i] = (theta[:, i] * (high - low) + sgn * low) * 1000  # TeV
 
-    # invert R to get M1 (R = M1/min(|mu|, |M2|))
-    # sgn = onp.sign(theta[:, M1_idx])
-    # theta[:, M1_idx] = sgn * 10 + theta[:, M1_idx] * onp.min(
-    #     [onp.abs(theta[:, mu_idx]), onp.abs(theta[:, M2_idx])], axis=0
-    # )
-
-    # invert R to get M_L2 (R = M_L2/|M_1|)
-    # theta[:, M_L2_idx] = theta[:, M_L2_idx] * onp.min(
-    #     [
-    #         onp.abs(theta[:, mu_idx]),
-    #         onp.abs(theta[:, M1_idx]),
-    #         onp.abs(theta[:, M2_idx]),
-    #     ],
-    #     axis=0,
-    # )
-
-    # invert R to get M_R2 (R = M_R2/|M_1|)
-    # theta[:, M_R2_idx] = theta[:, M_R2_idx] * onp.min(
-    #     [
-    #         onp.abs(theta[:, mu_idx]),
-    #         onp.abs(theta[:, M1_idx]),
-    #         onp.abs(theta[:, M2_idx]),
-    #     ],
-    #     axis=0,
-    # )
     # insert 9 squark masses
     theta = onp.insert(theta, [squark_idx], [4000 for i in range(9)], axis=1)
 
     return theta
 
 
-def get_simulator(micromegas_simulator=None, preprocess=None, **kwargs):
+def get_mass_split_and_mchi(results):
+    slepton_masses = onp.array(
+        [results.msel, results.msml, results.mser, results.msmr]
+    ).T
+    # ? What's a negative neutralino mass?
+    slepton_masses = onp.abs(slepton_masses)
+    chi_masses = onp.abs(results.mneut1)
+    lightest_sleptons = onp.min(slepton_masses, axis=1)
+    mass_splitting = lightest_sleptons - chi_masses
+
+    return mass_splitting, chi_masses
+
+
+def get_simulator(
+    micromegas_simulator=None,
+    preprocess=None,
+    use_direct_detection=True,
+    use_atlas_constraints=True,
+    **kwargs
+):
     """
     Parameters:
     -----------
@@ -150,7 +144,7 @@ def get_simulator(micromegas_simulator=None, preprocess=None, **kwargs):
         gmuon=True,
         fast=True,
         # nucleon_amplitudes=True,
-        direct_detection_pvalues=True,
+        direct_detection_pvalues=use_direct_detection,
         # masslimits=True,
         # bsg=True,
         # bsmumu=True,
@@ -174,19 +168,21 @@ def get_simulator(micromegas_simulator=None, preprocess=None, **kwargs):
         theta = theta_addunits(unitless_theta)
         params = [EwsbParameters(*th) for th in theta]
         results = _simulator(params=params, settings=settings)
-        # import IPython; IPython.embed()
-        out = onp.array(
-            [results.omega, results.gmuon, results.mhsm, results.pval_xenon1T]
-        )
+        out = onp.array([results.omega, results.gmuon, results.mhsm])
+        if use_direct_detection:
+            out = onp.vstack([out, results.pval_xenon1T])
+        if use_atlas_constraints:
+            atlas_pvals = calc_atlas_pvals(*get_mass_split_and_mchi(results))
+            out = onp.vstack([out, atlas_pvals])
+
         out = out.T
         out = preprocess(out)
         return out
 
     if micromegas_simulator is None:
         micromegas_simulator = "spheno"
-        # micromegas_simulator = "softsusy"
 
-    obs_dim = 4
+    obs_dim = 3 + (use_direct_detection) + (use_atlas_constraints)
     theta_dim = 15
     _simulator = micromegas[micromegas_simulator]
 
@@ -212,7 +208,7 @@ def get_simulator(micromegas_simulator=None, preprocess=None, **kwargs):
 
     return batched_distributed_simulator, obs_dim, theta_dim
     # return distributed_simulator, obs_dim, theta_dim
-    # test_simulator = lambda rng, args: simulator(args)
+    # test_simulator = lambda rng, args, num_samples_per_theta=1: simulator(args)
     # return test_simulator, obs_dim, theta_dim
 
 
@@ -276,7 +272,10 @@ def get_simulator_with_more_observables(
             "pval_xenon1T",
         ]
 
+        atlas_pvals = calc_atlas_pvals(*get_mass_split_and_mchi(results))
+
         out_dict = {key: getattr(results, key) for key in obs_keys}
+        out_dict["atlas_pvals"] = atlas_pvals
         return [out_dict]
 
     if micromegas_simulator is None:

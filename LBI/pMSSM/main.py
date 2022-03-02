@@ -5,7 +5,7 @@ import numpy as onp
 from trax.jaxboard import SummaryWriter
 from lbi.pipeline.base import pipeline
 from lbi.prior import SmoothedBoxPrior
-
+import h5py
 # from lbi.diagnostics import MMD, ROC_AUC, LR_ROC_AUC
 from lbi.sampler import hmc
 from simulator import get_simulator, theta_addunits, theta_ranges
@@ -21,25 +21,36 @@ import matplotlib.pyplot as plt
 from pipeline_kwargs import pipeline_kwargs
 
 
-# from jax.config import config
-# config.update('jax_disable_jit', True)
+from jax.config import config
+config.update('jax_disable_jit', True)
 
 
 def scale_X(x):
     """
     x: jax.numpy array
     """
-    # omega = (backend.log(x[0]) - 1.6271843) / 2.257083
-    # gmuon = (1e10 * x[1] - 0.686347) / (3.0785 * 3)
-    # mh = (x[2] - 124.86377) / 2.2839
-    # print("x shape", x.shape)
-    omega = np.atleast_2d(np.log(np.clip(x[..., 0], a_min=1e-5, a_max=None)) - 2).T
-    gmuon = np.atleast_2d(1e10 * x[..., 1]).T
-    mh = np.atleast_2d((x[..., 2] - 124.86377) / 2.2839).T
-    pval = np.atleast_2d(np.clip(x[..., 3], a_min=None, a_max=X_true[:, 3])).T
-    # print("omega shape", omega.shape)
-    out = np.hstack([omega, gmuon, mh, pval])
-    # return x
+    omega = np.atleast_2d(np.log10(np.clip(x[..., 0], a_min=1e-5, a_max=None))*2).T
+    
+    gmuon = np.clip(x[..., 1], a_min=1e-11, a_max=1e-8)
+    gmuon = np.atleast_2d(np.log10(gmuon) + 9.5).T
+    
+    mh = np.clip(x[..., 2], a_min=120)
+    mh = np.atleast_2d((mh - 123.86377) / 2.2839).T
+    
+    out = [omega, gmuon, mh]
+    
+    if pipeline_kwargs["simulator_kwargs"]["use_direct_detection"]:
+        # if exists, it'll always be 3rd
+        xenon_pval = np.atleast_2d(np.clip(x[..., 3], a_min=None, a_max=X_true[:, 3])).T
+        out += [xenon_pval]
+        
+    if pipeline_kwargs["simulator_kwargs"]["use_atlas_constraints"]:
+        # this will always be last
+        atlas_pval = np.atleast_2d(np.clip(x[..., -1], a_min=None, a_max=X_true[:, -1])).T
+        out += [atlas_pval]
+        
+    out = np.hstack(out)
+    
     return out
 
 
@@ -69,12 +80,21 @@ logger = None
 
 
 # set up true model for posterior inference test
-simulator_kwargs = {}
-simulate, obs_dim, theta_dim = get_simulator(**simulator_kwargs)
+simulate, obs_dim, theta_dim = get_simulator(**pipeline_kwargs["simulator_kwargs"])
 # --------------------------
 # The true values correspond to: omega, gmuon, mh, xenon pvals
-X_true = np.array([[0.12, 251e-11, 125.0, 0.5]])
-X_sigma = np.array([0.02, 59e-11, 1.0, 1e-5])
+X_true = [0.12, 251e-11, 125.0]
+X_sigma = [0.005, 59e-11, 1.0]
+
+if pipeline_kwargs["simulator_kwargs"]["use_direct_detection"]:
+    X_true += [[0.5]]
+    X_sigma += [1e-5]
+if pipeline_kwargs["simulator_kwargs"]["use_atlas_constraints"]:
+    X_true += [0.5]
+    X_sigma += [1e-5]
+
+X_true = np.array([X_true])
+X_sigma = np.array(X_sigma)
 
 print("X_true", X_true)
 
@@ -94,8 +114,6 @@ model, log_prob, params, Theta_post = pipeline(
     # Prior
     log_prior,
     sample_prior,
-    # Simulator
-    simulator_kwargs=simulator_kwargs,
     # scaling
     sigma=X_sigma,
     scale_X=scale_X,
@@ -119,7 +137,7 @@ def potential_fn(theta):
     return log_post.sum()
 
 
-num_chains = 20
+num_chains = 16
 init_theta = sample_prior(rng, num_samples=num_chains)
 
 mcmc = hmc(
@@ -200,12 +218,15 @@ ranges = np.vstack(
     [ranges, np.array([(posterior_log_probs.min(), posterior_log_probs.max())])]
 )
 
-corner.corner(onp.array(unitful_samples), range=ranges, labels=labels)
+try:
+    corner.corner(onp.array(unitful_samples), range=ranges, labels=labels)
 
-if hasattr(logger, "plot"):
-    logger.plot(f"Final Corner Plot", plt, close_plot=True)
-else:
-    plt.savefig("posterior_corner.png")
+    if hasattr(logger, "plot"):
+        logger.plot(f"Final Corner Plot", plt, close_plot=True)
+    else:
+        plt.savefig("posterior_corner.png")
+except KeyboardInterrupt:
+    print("Could not plot corner plot")
 plt.clf()
 
 
@@ -223,6 +244,22 @@ big_simulator = get_simulator_with_more_observables()
 
 num_samples = -1  # -1 means all
 results = big_simulator(rng, samples[:num_samples])
+
+
+# --------------------------
+# Save the samples and micromegas results
+# --------------------------
+samples_and_results = results
+samples_and_results["samples"] = unitful_samples[:num_samples]
+
+hf = h5py.File('samples_and_results.h5', 'w')
+for key, arr in samples_and_results.items():
+    hf.create_dataset(key, data=arr)
+hf.close()
+
+# --------------------------
+# Plot the samples and results
+# --------------------------
 
 lower_limits = onp.array(X_true - 3 * X_sigma)
 # lower limit for direct detection is 3 sigma excluded
@@ -264,6 +301,3 @@ try:
     plt.clf()
 except:
     print("Could not plot filtered posterior corner")
-
-onp.save("unitful_posterior_samples.npy", unitful_samples[:num_samples])
-onp.save("results.npy", results)
