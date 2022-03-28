@@ -1,8 +1,8 @@
 # Simulation Based Inference for Efficient Theory Space Sampling: an Application to Supersymmetric Explanations of the Anomalous Muon (g-2)
 **Authors:** Logan Morrison, Stefano Profumo, and John Tamanas
 <!---[\[arxiv\]](arXiv)[\[bibtex\]](bibtex)-->
-[![arXiv](http://img.shields.io/badge/arXiv-2006.00615-cd5c5c.svg)](https://arxiv.org/abs/.)
-[![BibTex](http://img.shields.io/badge/BibTex-4682b4.svg)](https://ui.adsabs.harvard.edu/abs//exportcitation)
+[![arXiv](http://img.shields.io/badge/arXiv-2203.13403-cd5c5c.svg)](https://arxiv.org/abs/2203.13403)
+<!---[![BibTex](http://img.shields.io/badge/BibTex-4682b4.svg)](https://ui.adsabs.harvard.edu/abs//exportcitation)-->
 
 
 In [our paper](https://arxiv.org/abs/2006.00615), we introduce the simulation-based inference (SBI) framework to the problem of sampling from experimentally-constrained theory spaces. 
